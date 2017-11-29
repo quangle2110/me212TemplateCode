@@ -14,6 +14,11 @@ import tf.transformations as tfm
 from me212base.msg import WheelVelCmd
 import helper
 
+r = 0.037
+b = 0.225
+port = ""  #arduino port
+initial = True
+
 class ObjectNavigator():
     def __init__(self):
         self.listener = tf.TransformListener()
@@ -39,8 +44,6 @@ class ObjectNavigator():
         thres_dist = 0.1
         thres_angle = 0.2
         k = 0.5
-        r = 0.037
-        b = 0.225
 
         wv = WheelVelCmd()
 
@@ -77,6 +80,45 @@ class ObjectNavigator():
                 wv.desiredWV_L = (vel-w*b)/r 
 
             self.velcmd_pub.publish(wv)
+
+def getDistance():
+    ser = serial.Serial(port, 9600)
+    line = ser.readline()
+    X, Y, Th, pathDist = line.split()
+    pathDist = float(pathDist)
+    return pathDist
+
+def navigation1(d1, d2, d3, k1, k2, k3):
+    nav_pub =  rospy.Publisher("/cmdvel", WheelVelCmd, queue_size=1)
+    pathDist = getDistance()
+    vel = 0.2
+    if pathDist < d1:
+        k = 0
+    elif pathDist >= d1 and pathDist < d1+0.5*np.pi*(1/k1):
+        k = k1
+    elif pathDist >= d1+ 0.5*np.pi*(1/k1) and pathDist < d1+d2+0.5*np.pi*(1/k1):
+        k  = 0
+    elif pathDist >= d1+d2+0.5*np.pi*(1/k1) and pathDist < d1+d2+0.5*np.pi*(1/k1+1/k2):
+        k = k2
+    elif pathDist >= d1+d2+0.5*np.pi*(1/k1+1/k2) and pathDist < d1+d2+d3+0.5*np.pi*(1/k1+1/k2):
+        k = 0
+    elif pathDist >= d1+d2+d3+0.5*np.pi*(1/k1+1/k2) and pathDist < d1+d2+d3+0.5*np.pi*(1/k1+1/k2+1/k3):
+        k = k3
+    else:
+        vel = 0
+        k = 0
+        initial = False
+
+    wv = WheelVelCmd()
+    wv.desiredWV_R, wv.desiredWV_L = computeVelocity(vel, k)
+    nav_pub.publish(wv)
+
+    rospy.spin()
+
+def computeVelocity(vel, K):
+    wv_r = vel*(1+K*b)
+    wv_l = vel*(1-K*b)
+    return wv_r, wv_l
     
 def main():
     rospy.init_node('me212_robot', anonymous=True)
