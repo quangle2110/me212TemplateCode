@@ -21,6 +21,9 @@ rospy.init_node('object_detection', anonymous=True)
 # Publisher for publishing pyramid marker in rviz
 vis_pub = rospy.Publisher('visualization_marker', Marker, queue_size=10) 
 
+# Publisher for camera pose estimate from the object
+pose_pub = rospy.Publisher('object2camera', Pose, queue_size=10)
+
 # Bridge to convert ROS Image type to OpenCV Image type
 cv_bridge = CvBridge()  
 
@@ -65,49 +68,49 @@ def main():
 
     rospy.spin()
 
-# Task 1 callback for ROS image
-def rosImageVizCallback(msg):
-    # 1. convert ROS image to opencv format
-    try:
-        cv_image = cv_bridge.imgmsg_to_cv2(msg, "bgr8")
-    except CvBridgeError as e:
-        print(e)
+# # Task 1 callback for ROS image
+# def rosImageVizCallback(msg):
+#     # 1. convert ROS image to opencv format
+#     try:
+#         cv_image = cv_bridge.imgmsg_to_cv2(msg, "bgr8")
+#     except CvBridgeError as e:
+#         print(e)
 
-    # 2. visualize it in a cv window
-    cv2.imshow("OpenCV_View", cv_image)
-    cv2.waitKey(3)
+#     # 2. visualize it in a cv window
+#     cv2.imshow("OpenCV_View", cv_image)
+#     cv2.waitKey(3)
 
-# Task 1 callback for mouse event
-def cvWindowMouseCallBackFunc(event, xp, yp, flags, param):
-    print 'In cvWindowMouseCallBackFunc: (xp, yp)=', xp, yp  # xp, yp is the mouse location in the window
-    # 1. Set the object to 2 meters away from camera
-    zc = 2.0
-    # 2. Visualize the pyramid
-    showPyramid(xp, yp, zc, 10, 10)
+# # Task 1 callback for mouse event
+# def cvWindowMouseCallBackFunc(event, xp, yp, flags, param):
+#     print 'In cvWindowMouseCallBackFunc: (xp, yp)=', xp, yp  # xp, yp is the mouse location in the window
+#     # 1. Set the object to 2 meters away from camera
+#     zc = 2.0
+#     # 2. Visualize the pyramid
+#     showPyramid(xp, yp, zc, 10, 10)
 
-# Task 2 callback
-def rosHSVProcessCallBack(msg):
-    try:
-        cv_image = cv_bridge.imgmsg_to_cv2(msg, "bgr8")
-    except CvBridgeError as e:
-        print(e)
+# # Task 2 callback
+# def rosHSVProcessCallBack(msg):
+#     try:
+#         cv_image = cv_bridge.imgmsg_to_cv2(msg, "bgr8")
+#     except CvBridgeError as e:
+#         print(e)
         
-    contours, mask_image = HSVObjectDetection(cv_image)
+#     contours, mask_image = HSVObjectDetection(cv_image)
     
-    for cnt in contours:
-        # Find a bounding box of detected region
-        #  xp, yp are the coordinate of the top left corner of the bounding rectangle
-        #  w, h are the width and height of the bounding rectangle
-        xp,yp,w,h = cv2.boundingRect(cnt)  
+#     for cnt in contours:
+#         # Find a bounding box of detected region
+#         #  xp, yp are the coordinate of the top left corner of the bounding rectangle
+#         #  w, h are the width and height of the bounding rectangle
+#         xp,yp,w,h = cv2.boundingRect(cnt)  
         
-        # Set the object to 2 meters away from camera
-        zc = 2    
+#         # Set the object to 2 meters away from camera
+#         zc = 2    
         
-        # Draw the bounding rectangle
-        cv2.rectangle(cv_image,(xp,yp),(xp+w,yp+h),[0,255,255], 2)
+#         # Draw the bounding rectangle
+#         cv2.rectangle(cv_image,(xp,yp),(xp+w,yp+h),[0,255,255], 2)
         
-        centerx, centery = xp+w/2, yp+h/2
-        showPyramid(centerx, centery, zc, w, h)
+#         centerx, centery = xp+w/2, yp+h/2
+#         showPyramid(centerx, centery, zc, w, h)
     
 
 # Task 2 object detection code
@@ -126,7 +129,7 @@ def HSVObjectDetection(cv_image, toPrint = True):
     if toPrint:
         print 'hsv', hsv_image[240][320] # the center point hsv
         
-    showImageInCVWindow(cv_image, mask_eroded, mask_eroded_dilated)
+    # showImageInCVWindow(cv_image, mask_eroded, mask_eroded_dilated)
     image,contours,hierarchy = cv2.findContours(mask_eroded_dilated,cv2.RETR_LIST,cv2.CHAIN_APPROX_SIMPLE)
     return contours, mask_eroded_dilated
 
@@ -140,21 +143,42 @@ def rosRGBDCallBack(rgb_data, depth_data):
         print(e)
 
     contours, mask_image = HSVObjectDetection(cv_image, toPrint = False)
+    contours.sort(key=cv2.contourArea, reverse=True)
+    max = True
 
     for cnt in contours:
-        xp,yp,w,h = cv2.boundingRect(cnt)
-        
-        # Get depth value from depth image, need to make sure the value is in the normal range 0.1-10 meter
-        if not math.isnan(cv_depthimage2[int(yp)][int(xp)]) and cv_depthimage2[int(yp)][int(xp)] > 0.1 and cv_depthimage2[int(yp)][int(xp)] < 10.0:
-            zc = cv_depthimage2[int(yp)][int(xp)]
-            #print 'zc', zc
-        else:
-            continue
+        if max:
+            xp,yp,w,h = cv2.boundingRect(cnt)
+            centerx, centery = xp+w/2, yp+h/2
             
-        centerx, centery = xp+w/2, yp+h/2
-        cv2.rectangle(cv_image,(xp,yp),(xp+w,yp+h),[0,255,255],2)
-        
-        showPyramid(centerx, centery, zc, w, h)
+            # Get depth value from depth image, need to make sure the value is in the normal range 0.1-10 meter
+            if not math.isnan(cv_depthimage2[int(centery)][int(centerx)]) and cv_depthimage2[int(centery)][int(centerx)] > 0.1 and cv_depthimage2[int(centery)][int(centerx)] < 10.0:
+                zc = cv_depthimage2[int(centery)][int(centerx)]
+                #print 'zc', zc
+            else:
+                continue
+                
+            
+            cv2.rectangle(cv_image,(xp,yp),(xp+w,yp+h),[0,255,255],2)
+            # cv2.imshow('object', cv_image)
+            
+            showPyramid(centerx, centery, zc, w, h)
+
+            # Publish the object pose
+            pose = Pose()
+            pose.position.x = zc
+            pose.position.y = centerx
+            pose.position.z = centery
+            pose.orientation.x = 0
+            pose.orientation.y = 0
+            pose.orientation.z = 0
+            pose.orientation.w = 1
+            pose_pub.publish(pose)
+
+        cv2.imshow(cv_image)
+        cv2.waitKey(3)
+
+        max = False
 
 def getXYZ(xp, yp, zc, fx,fy,cx,cy):
     ## 
@@ -217,4 +241,3 @@ def poselist2pose(poselist):
 
 if __name__=='__main__':
     main()
-    
